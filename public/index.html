@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Call Launcher</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 560px;
+      margin: 40px auto;
+      padding: 0 16px;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    p {
+      color: #555;
+    }
+
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    button {
+      padding: 12px 16px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #callBtn {
+      width: 100%;
+    }
+
+    #status {
+      margin-top: 16px;
+      white-space: pre-wrap;
+      background: #f6f6f6;
+      padding: 12px;
+      border-radius: 8px;
+      min-height: 50px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      background: #eee;
+      border-radius: 999px;
+      padding: 8px 12px;
+      border: none;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Appeler un client</h1>
+  <p>Entre un numéro au format international, puis clique sur “Appeler”.</p>
+
+  <div class="card">
+    <label for="phone">Numéro client</label>
+    <input id="phone" type="text" placeholder="+573046625213" />
+
+    <button id="callBtn">Appeler</button>
+
+    <div class="row">
+      <button class="chip" data-number="+573046625213">Test Colombie</button>
+      <button class="chip" data-number="+33756933261">Test France</button>
+    </div>
+
+    <div id="status">Prêt.</div>
+  </div>
+
+  <script>
+    const phoneInput = document.getElementById('phone');
+    const callBtn = document.getElementById('callBtn');
+    const statusBox = document.getElementById('status');
+    const chips = document.querySelectorAll('.chip');
+
+    function setStatus(message) {
+      statusBox.textContent = message;
+    }
+
+    function normalizeNumber(value) {
+      return value.trim().replace(/\s+/g, '');
+    }
+
+    async function launchCall() {
+      const raw = phoneInput.value;
+      const to = normalizeNumber(raw);
+
+      if (!to) {
+        setStatus('Entre un numéro.');
+        return;
+      }
+
+      callBtn.disabled = true;
+      setStatus('Lancement de l’appel...');
+
+      try {
+        const res = await fetch(`/call?to=${encodeURIComponent(to)}`);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Erreur inconnue');
+        }
+
+        setStatus(`Appel lancé vers ${data.to}\nSID: ${data.sid}`);
+      } catch (err) {
+        setStatus(`Erreur: ${err.message}`);
+      } finally {
+        callBtn.disabled = false;
+      }
+    }
+
+    callBtn.addEventListener('click', launchCall);
+
+    phoneInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        launchCall();
+      }
+    });
+
+    chips.forEach((chip) => {
+      chip.addEventListener('click', () => {
+        phoneInput.value = chip.dataset.number;
+      });
+    });
+  </script>
+</body>
+</html>
