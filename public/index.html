@@ -2,157 +2,909 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Call Launcher</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Flowmatiq Softphone</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Flowmatiq" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <meta name="theme-color" content="#0d0d1a" />
   <style>
+    :root {
+      --accent:   #6366f1;
+      --accent2:  #8b5cf6;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --bg:       #0d0d1a;
+      --glass:    rgba(255,255,255,.07);
+      --border:   rgba(255,255,255,.11);
+      --text:     rgba(255,255,255,.88);
+      --muted:    rgba(255,255,255,.42);
+      --sit:      env(safe-area-inset-top,    0px);
+      --sib:      env(safe-area-inset-bottom, 0px);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { height: 100%; }
     body {
-      font-family: Arial, sans-serif;
-      max-width: 560px;
-      margin: 40px auto;
-      padding: 0 16px;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;   /* no body scroll on mobile */
+    }
+    button { font-family: inherit; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+    input, textarea { font-family: inherit; outline: none; border: none; }
+
+    /* ── Animated bg ─────────────────────── */
+    #bg {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: linear-gradient(145deg, #12082e 0%, #0d0d1a 45%, #091628 100%);
+    }
+    #bg::before, #bg::after {
+      content: ''; position: absolute; border-radius: 50%; filter: blur(70px);
+    }
+    #bg::before {
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(99,102,241,.2) 0%, transparent 70%);
+      top: -200px; left: -200px;
+      animation: orb1 9s ease-in-out infinite;
+    }
+    #bg::after {
+      width: 360px; height: 360px;
+      background: radial-gradient(circle, rgba(139,92,246,.14) 0%, transparent 70%);
+      bottom: -120px; right: -120px;
+      animation: orb2 11s ease-in-out infinite;
+    }
+    @keyframes orb1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(70px,55px)} }
+    @keyframes orb2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-55px,-45px)} }
+
+    /* ── App shell ───────────────────────── */
+    #app {
+      position: relative; z-index: 1;
+      height: 100dvh;
+      display: flex; flex-direction: column;
     }
 
-    h1 {
-      margin-bottom: 8px;
+    /* ── Header ──────────────────────────── */
+    #hdr {
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: calc(var(--sit) + 12px) 20px 12px;
+      background: rgba(13,13,26,.84);
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 17px; font-weight: 800; letter-spacing: -.3px; color: #fff; }
+    .logo b { color: var(--accent); font-weight: 800; }
+    .dot-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+           animation: blink 2.4s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Call banner ─────────────────────── */
+    #call-banner {
+      flex-shrink: 0; display: none;
+      align-items: center; gap: 12px;
+      padding: 8px 20px;
+      background: linear-gradient(135deg,rgba(34,197,94,.18),rgba(16,185,129,.12));
+      border-bottom: 1px solid rgba(34,197,94,.28);
+    }
+    #call-banner.on { display: flex; }
+    #call-timer { font-size: 14px; font-weight: 700; color: var(--green);
+                  font-variant-numeric: tabular-nums; min-width: 48px; }
+    #call-num   { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hangup {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: var(--red); color: #fff; font-size: 15px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
 
-    p {
-      color: #555;
+    /* ── Main area ───────────────────────── */
+    /*  Mobile: #main is the flex-1 container, columns stack but only one
+        is visible at a time (absolute positioned inside).
+        Desktop: #main becomes a flex-row showing both columns.           */
+    #main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;        /* becomes row on desktop */
+      flex-direction: column;
     }
+
+    /* ── Column base (mobile) ────────────── */
+    .col {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      /* hidden by default, JS adds .on */
+      opacity: 0; pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .col.on { opacity: 1; pointer-events: auto; }
+
+    /* ─────────────────────────────────────────────────────
+       DIALER COLUMN
+    ───────────────────────────────────────────────────── */
+    #dialer-col {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      /* starts visible */
+      opacity: 1; pointer-events: auto;
+    }
+    .dialer-inner {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 16px 16px calc(var(--sib) + 90px);
+      gap: 14px;
+      min-height: 100%;
+    }
+
+    /* Stats */
+    .stats { display: flex; gap: 10px; width: 100%; }
+    .stat {
+      flex: 1; text-align: center;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 14px; padding: 10px 4px;
+      backdrop-filter: blur(10px);
+    }
+    .sv { font-size: 20px; font-weight: 700; color: #fff; }
+    .sl { font-size: 10px; color: var(--muted); text-transform: uppercase;
+          letter-spacing: .5px; margin-top: 2px; }
+
+    /* Number display */
+    .num-box {
+      width: 100%;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 16px; padding: 14px 18px;
+      text-align: center; min-height: 58px;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(10px);
+      cursor: default;
+    }
+    #disp {
+      font-size: 26px; font-weight: 300; letter-spacing: 2px; color: #fff;
+      word-break: break-all;
+    }
+    #disp.ph { font-size: 15px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
+
+    /* Chips */
+    .chips {
+      display: flex; gap: 8px; width: 100%;
+      overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip {
+      flex-shrink: 0;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 999px; padding: 7px 14px;
+      color: var(--text); font-size: 13px; white-space: nowrap;
+    }
+    .chip:active { background: rgba(255,255,255,.14); }
+
+    /* Numpad grid — keys are pill-shaped, not forced-square */
+    .numpad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px; width: 100%;
+      max-width: 320px;    /* keeps keys from becoming huge on wide screens */
+    }
+    .nk {
+      height: 64px;
+      background: rgba(255,255,255,.09);
+      border: 1px solid var(--border);
+      border-radius: 32px;
+      color: #fff; font-size: 20px; font-weight: 400;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1px; user-select: none;
+      transition: background .07s, transform .07s;
+    }
+    .nk:active { background: rgba(255,255,255,.2); transform: scale(.94); }
+    .nk .sub { font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+
+    /* Call row */
+    .call-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px; width: 100%; max-width: 320px;
+      align-items: center;
+    }
+    #call-btn {
+      height: 72px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 36px; color: #fff; font-size: 26px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 20px rgba(99,102,241,.4);
+      transition: opacity .1s, transform .1s;
+    }
+    #call-btn:active  { opacity: .85; transform: scale(.94); }
+    #call-btn:disabled { opacity: .4; }
+    #del-btn {
+      height: 64px;
+      background: rgba(255,255,255,.07);
+      border: 1px solid var(--border);
+      border-radius: 32px; color: var(--text); font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #del-btn:active { background: rgba(255,255,255,.15); }
+
+    /* Status */
+    #status {
+      width: 100%; max-width: 320px;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 12px; padding: 11px 14px;
+      font-size: 13px; color: var(--text);
+      min-height: 42px; text-align: center; white-space: pre-wrap;
+    }
+
+    /* ─────────────────────────────────────────────────────
+       PANEL COLUMN (prospects / recents / favoris / sms)
+    ───────────────────────────────────────────────────── */
+    #panel-col { display: flex; flex-direction: column; }
+
+    /* Desktop-only top tab strip */
+    #rtabs {
+      display: none;           /* hidden on mobile */
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .rtab {
+      padding: 13px 20px;
+      font-size: 14px; color: var(--muted);
+      background: none; border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer; user-select: none;
+      transition: color .15s;
+    }
+    .rtab.on { color: #fff; border-color: var(--accent); }
+    .rtab:hover { color: rgba(255,255,255,.7); }
+
+    /* Pane container inside panel */
+    #pbody {
+      flex: 1; position: relative; overflow: hidden;
+    }
+    .pane {
+      position: absolute; inset: 0;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+      opacity: 0; pointer-events: none;
+      transition: opacity .16s ease;
+    }
+    .pane.on { opacity: 1; pointer-events: auto; }
+
+    /* List layout */
+    .pt { font-size: 22px; font-weight: 700; padding: 18px 16px 4px; }
+    .ps { font-size: 13px; color: var(--muted); padding: 0 16px 12px; }
+    .lp { padding: 0 16px 24px; }
+
+    .search {
+      width: 100%; padding: 11px 14px; margin-bottom: 12px;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 12px; color: #fff; font-size: 15px;
+    }
+    .search::placeholder { color: var(--muted); }
 
     .card {
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 16px;
-      margin-top: 20px;
+      display: flex; align-items: center; gap: 13px;
+      padding: 13px; margin-bottom: 8px;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 14px; cursor: pointer;
+    }
+    .card:active { background: rgba(255,255,255,.11); }
+    .ava {
+      width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 15px; color: #fff;
+    }
+    .ci { flex: 1; min-width: 0; }
+    .cn { color: #fff; font-weight: 600; font-size: 15px; }
+    .cp { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .cbtn {
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      background: rgba(34,197,94,.18); border: 1px solid rgba(34,197,94,.3);
+      color: var(--green); font-size: 17px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .cbtn:active { background: rgba(34,197,94,.3); }
+
+    .rcard {
+      display: flex; align-items: center; gap: 13px;
+      padding: 12px; margin-bottom: 8px;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .rico {
+      width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700;
+    }
+    .out  { background: rgba(99,102,241,.18); color: var(--accent); }
+    .inc  { background: rgba(34,197,94,.18);  color: var(--green);  }
+    .mis  { background: rgba(239,68,68,.18);  color: var(--red);    }
+    .ri { flex: 1; }
+    .rn { color: #fff; font-weight: 500; font-size: 14px; }
+    .rm { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .rd { color: var(--muted); font-size: 12px; }
+
+    .empty {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 60px 20px; text-align: center; gap: 10px; color: var(--muted);
+    }
+    .ei  { font-size: 46px; }
+    .et  { font-size: 17px; font-weight: 600; color: rgba(255,255,255,.45); }
+    .ed  { font-size: 14px; max-width: 220px; }
+
+    .sf { padding: 0 16px 24px; }
+    .sto, .sbod {
+      width: 100%; padding: 12px 14px; margin-bottom: 11px;
+      background: var(--glass); border: 1px solid var(--border);
+      border-radius: 12px; color: #fff; font-size: 15px;
+    }
+    .sto::placeholder, .sbod::placeholder { color: var(--muted); }
+    .sbod { resize: none; min-height: 120px; }
+    .ssend {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 13px; color: #fff; font-size: 16px; font-weight: 600;
+    }
+    .ssend:active { opacity: .85; }
+
+    /* ── Bottom tab bar (mobile only) ────── */
+    #tabbar {
+      flex-shrink: 0; display: flex;
+      background: rgba(13,13,26,.96);
+      backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+      border-top: 1px solid var(--border);
+      padding-bottom: var(--sib);
+    }
+    .tab {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 8px 2px; min-height: 56px; user-select: none;
+    }
+    .tico { font-size: 21px; position: relative; transition: transform .14s; }
+    .tlbl { font-size: 10px; margin-top: 3px; color: var(--muted); transition: color .14s; }
+    .tab.on .tico { transform: scale(1.1); }
+    .tab.on .tlbl { color: var(--accent); }
+    .badge::after {
+      content: ''; position: absolute; top: -1px; right: -4px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red); border: 1.5px solid var(--bg);
     }
 
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-weight: 600;
+    /* ── Incoming popup ───────────────────── */
+    #incoming {
+      position: fixed; z-index: 1000;
+      top: calc(var(--sit) + 14px); left: 14px; right: 14px;
+      background: rgba(16,16,36,.96);
+      backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px);
+      border: 1px solid rgba(99,102,241,.36);
+      border-radius: 22px; padding: 16px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.55);
+      transform: translateY(-140%);
+      transition: transform .4s cubic-bezier(.34,1.56,.64,1);
     }
-
-    input {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 12px;
-      font-size: 16px;
-      border: 1px solid #bbb;
-      border-radius: 8px;
-      margin-bottom: 12px;
+    #incoming.on { transform: translateY(0); }
+    .itop { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .iava {
+      width: 50px; height: 50px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center; font-size: 20px;
     }
+    .ilbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .iname{ font-size: 18px; font-weight: 700; color: #fff; margin: 2px 0; }
+    .isub { font-size: 13px; color: var(--muted); }
+    .ibtns{ display: flex; gap: 10px; }
+    .ibtn { flex: 1; padding: 13px; border-radius: 13px; font-size: 15px; font-weight: 600; }
+    .iok  { background: var(--green); color: #fff; }
+    .ino  { background: var(--red);   color: #fff; }
+    .iok:active, .ino:active { opacity: .82; }
 
-    button {
-      padding: 12px 16px;
-      font-size: 16px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
+    /* ── Script sheet ─────────────────────── */
+    #sovl {
+      display: none; position: fixed; inset: 0; z-index: 890;
+      background: rgba(0,0,0,.5);
     }
-
-    #callBtn {
-      width: 100%;
+    #sovl.on { display: block; }
+    #ssheet {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 891;
+      max-height: 72vh;
+      background: rgba(16,16,36,.99);
+      backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px);
+      border: 1px solid var(--border);
+      border-radius: 24px 24px 0 0;
+      padding: 14px 20px calc(28px + var(--sib));
+      overflow-y: auto;
+      transform: translateY(100%);
+      transition: transform .3s cubic-bezier(.32,.72,0,1);
     }
-
-    #status {
-      margin-top: 16px;
-      white-space: pre-wrap;
-      background: #f6f6f6;
-      padding: 12px;
-      border-radius: 8px;
-      min-height: 50px;
+    #ssheet.on { transform: translateY(0); }
+    .shandle {
+      width: 36px; height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,.25); margin: 0 auto 14px;
     }
+    .stitle { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 12px; }
+    .sbody  { font-size: 15px; color: var(--text); line-height: 1.75; }
+    .sbody strong { color: #fff; }
 
-    .row {
-      display: flex;
-      gap: 8px;
-      margin-top: 12px;
-      flex-wrap: wrap;
+    /* ── Script FAB ───────────────────────── */
+    #sfab {
+      position: fixed; z-index: 100;
+      bottom: calc(56px + var(--sib) + 12px); right: 16px;
+      width: 50px; height: 50px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 20px rgba(99,102,241,.42);
     }
+    #sfab:active { opacity: .85; }
 
-    .chip {
-      background: #eee;
-      border-radius: 999px;
-      padding: 8px 12px;
-      border: none;
-      cursor: pointer;
+    /* ═══════════════════════════════════════════════════
+       DESKTOP  ≥ 768 px
+       Both columns shown side by side.
+       #main goes from position:relative to flex-row.
+    ═══════════════════════════════════════════════════ */
+    @media (min-width: 768px) {
+      body { overflow: auto; }
+
+      #app { height: auto; min-height: 100dvh; }
+
+      #tabbar, #sfab { display: none; }
+
+      #main {
+        flex-direction: row;
+        /* reset the "relative + hidden" mobile stacking */
+        overflow: visible;
+        height: auto; flex: 1;
+      }
+
+      /* Both columns static and full-height */
+      .col {
+        position: static !important;   /* override absolute */
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        height: auto; min-height: 100%;
+      }
+
+      /* ── Dialer (left, white) ── */
+      #dialer-col {
+        width: 360px; flex-shrink: 0;
+        background: #fff;
+        overflow-y: auto;
+        box-shadow: 2px 0 24px rgba(0,0,0,.22);
+        z-index: 2;
+      }
+      #dialer-col .dialer-inner { padding-bottom: 32px; }
+
+      /* recolor for white bg */
+      #dialer-col .stat  { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.09); }
+      #dialer-col .sv    { color: #1a1a2e; }
+      #dialer-col .sl    { color: #999; }
+      #dialer-col .num-box { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.09); }
+      #dialer-col #disp  { color: #1a1a2e; }
+      #dialer-col #disp.ph { color: #bbb; }
+      #dialer-col .chip  { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.1); color: #555; }
+      #dialer-col .nk    { background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.1); color: #1a1a2e; }
+      #dialer-col .nk:active { background: rgba(0,0,0,.13); }
+      #dialer-col .nk .sub { color: #bbb; }
+      #dialer-col #del-btn { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.1); color: #1a1a2e; }
+      #dialer-col #del-btn:active { background: rgba(0,0,0,.1); }
+      #dialer-col #status { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.09); color: #555; }
+      #dialer-col .logo { color: #1a1a2e; }
+      #dialer-col .dot-wrap { color: #999; }
+
+      /* ── Panel (right, dark) ── */
+      #panel-col {
+        flex: 1;
+        min-height: 100%;
+        display: flex; flex-direction: column;
+        overflow: hidden;
+      }
+
+      #rtabs { display: flex; }        /* show top tabs on desktop */
+
+      #pbody { flex: 1; }
+
+      /* Panes: back to normal flow (no absolute) */
+      .pane {
+        position: static !important;
+        opacity: 1 !important; pointer-events: auto !important;
+        display: none; height: auto;
+      }
+      .pane.on { display: block; }
+
+      /* script sheet hidden on desktop */
+      #ssheet, #sovl { display: none !important; }
     }
   </style>
 </head>
 <body>
-  <h1>Appeler un client</h1>
-  <p>Entre un numéro au format international, puis clique sur “Appeler”.</p>
+<div id="bg"></div>
 
-  <div class="card">
-    <label for="phone">Numéro client</label>
-    <input id="phone" type="text" placeholder="+573046625213" />
-
-    <button id="callBtn">Appeler</button>
-
-    <div class="row">
-      <button class="chip" data-number="+573046625213">Test Colombie</button>
-      <button class="chip" data-number="+33756933261">Test France</button>
+<!-- ── Incoming call popup ────────────────── -->
+<div id="incoming">
+  <div class="itop">
+    <div class="iava">📞</div>
+    <div>
+      <div class="ilbl">Appel entrant</div>
+      <div class="iname" id="inc-num">+33 7 56 93 32 61</div>
+      <div class="isub"  id="inc-name">Client inconnu</div>
     </div>
+  </div>
+  <div class="ibtns">
+    <button class="ibtn ino" onclick="declineCall()">Refuser</button>
+    <button class="ibtn iok" onclick="acceptCall()">Répondre</button>
+  </div>
+</div>
 
-    <div id="status">Prêt.</div>
+<!-- ── Script sheet ───────────────────────── -->
+<div id="sovl" onclick="hideScript()"></div>
+<div id="ssheet">
+  <div class="shandle"></div>
+  <div class="stitle">📋 Script d'appel</div>
+  <div class="sbody">
+    <p><strong>Intro :</strong> « Bonjour [Prénom], je suis [Nom] de Flowmatiq. J'espère ne pas vous déranger ? »</p><br>
+    <p><strong>Accroche :</strong> « Nous aidons les équipes commerciales à augmenter leur taux de conversion jusqu'à 40 % grâce à notre solution de cold calling IA. »</p><br>
+    <p><strong>Question :</strong> « Est-ce que la productivité de votre équipe est un sujet sur lequel vous travaillez en ce moment ? »</p><br>
+    <p><strong>Objection :</strong> « Ce que nos clients remarquent, c'est que le ROI est visible dès le premier mois. »</p><br>
+    <p><strong>Clôture :</strong> « On pourrait prévoir 20 min la semaine prochaine ? Plutôt mardi ou jeudi ? »</p>
+  </div>
+</div>
+<button id="sfab" onclick="showScript()">📋</button>
+
+<!-- ── App ───────────────────────────────── -->
+<div id="app">
+
+  <header id="hdr">
+    <div class="logo">flow<b>matiq</b></div>
+    <div class="dot-wrap"><div class="dot"></div>Connecté</div>
+  </header>
+
+  <div id="call-banner">
+    <div id="call-timer">0:00</div>
+    <div id="call-num">—</div>
+    <button class="hangup" id="hangup">📵</button>
   </div>
 
-  <script>
-    const phoneInput = document.getElementById('phone');
-    const callBtn = document.getElementById('callBtn');
-    const statusBox = document.getElementById('status');
-    const chips = document.querySelectorAll('.chip');
+  <div id="main">
 
-    function setStatus(message) {
-      statusBox.textContent = message;
-    }
+    <!-- ── Dialer column ──────────────────── -->
+    <div id="dialer-col" class="col on">
+      <div class="dialer-inner">
 
-    function normalizeNumber(value) {
-      return value.trim().replace(/\s+/g, '');
-    }
+        <div class="stats">
+          <div class="stat"><div class="sv" id="s-calls">0</div><div class="sl">Appels</div></div>
+          <div class="stat"><div class="sv" id="s-reach">0</div><div class="sl">Contactés</div></div>
+          <div class="stat"><div class="sv" id="s-avg">0:00</div><div class="sl">Durée moy.</div></div>
+        </div>
 
-    async function launchCall() {
-      const raw = phoneInput.value;
-      const to = normalizeNumber(raw);
+        <div class="num-box">
+          <div id="disp" class="ph">Entrez un numéro</div>
+        </div>
 
-      if (!to) {
-        setStatus('Entre un numéro.');
-        return;
-      }
+        <div class="chips">
+          <button class="chip" data-n="+573046625213">🇨🇴 Colombie</button>
+          <button class="chip" data-n="+33756933261">🇫🇷 France</button>
+          <button class="chip" data-n="+16465551234">🇺🇸 USA</button>
+        </div>
 
-      callBtn.disabled = true;
-      setStatus('Lancement de l’appel...');
+        <div class="numpad">
+          <button class="nk" data-d="1">1<span class="sub">&thinsp;</span></button>
+          <button class="nk" data-d="2">2<span class="sub">ABC</span></button>
+          <button class="nk" data-d="3">3<span class="sub">DEF</span></button>
+          <button class="nk" data-d="4">4<span class="sub">GHI</span></button>
+          <button class="nk" data-d="5">5<span class="sub">JKL</span></button>
+          <button class="nk" data-d="6">6<span class="sub">MNO</span></button>
+          <button class="nk" data-d="7">7<span class="sub">PQRS</span></button>
+          <button class="nk" data-d="8">8<span class="sub">TUV</span></button>
+          <button class="nk" data-d="9">9<span class="sub">WXYZ</span></button>
+          <button class="nk" data-d="*">✱</button>
+          <button class="nk" data-d="0">0<span class="sub">+</span></button>
+          <button class="nk" data-d="#">#</button>
+        </div>
 
-      try {
-        const res = await fetch(`/call?to=${encodeURIComponent(to)}`);
-        const data = await res.json();
+        <div class="call-row">
+          <div></div>
+          <button id="call-btn">📞</button>
+          <button id="del-btn">⌫</button>
+        </div>
 
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Erreur inconnue');
-        }
+        <div id="status">Prêt.</div>
 
-        setStatus(`Appel lancé vers ${data.to}\nSID: ${data.sid}`);
-      } catch (err) {
-        setStatus(`Erreur: ${err.message}`);
-      } finally {
-        callBtn.disabled = false;
-      }
-    }
+      </div>
+    </div><!-- /dialer-col -->
 
-    callBtn.addEventListener('click', launchCall);
+    <!-- ── Panel column ───────────────────── -->
+    <div id="panel-col" class="col">
 
-    phoneInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        launchCall();
-      }
+      <!-- Desktop top tabs (hidden on mobile) -->
+      <div id="rtabs">
+        <button class="rtab on"  data-p="prospects">Prospects</button>
+        <button class="rtab"     data-p="recents">Récents</button>
+        <button class="rtab"     data-p="favoris">Favoris</button>
+        <button class="rtab"     data-p="sms">SMS</button>
+      </div>
+
+      <div id="pbody">
+
+        <!-- Prospects -->
+        <div class="pane on" id="pane-prospects" data-tab="prospects">
+          <div class="pt">Prospects</div>
+          <div class="ps">Contacts à appeler aujourd'hui</div>
+          <div class="lp">
+            <input class="search" type="search" placeholder="Rechercher…" />
+            <div class="card" data-n="+573046625213">
+              <div class="ava">JD</div>
+              <div class="ci"><div class="cn">Juan Diaz</div><div class="cp">+57 304 662 5213</div></div>
+              <button class="cbtn">📞</button>
+            </div>
+            <div class="card" data-n="+33756933261">
+              <div class="ava">ML</div>
+              <div class="ci"><div class="cn">Marie Laurent</div><div class="cp">+33 7 56 93 32 61</div></div>
+              <button class="cbtn">📞</button>
+            </div>
+            <div class="card" data-n="+16465551234">
+              <div class="ava">JS</div>
+              <div class="ci"><div class="cn">John Smith</div><div class="cp">+1 646 555 1234</div></div>
+              <button class="cbtn">📞</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Récents -->
+        <div class="pane" id="pane-recents" data-tab="recents">
+          <div class="pt">Récents</div>
+          <div class="ps">Historique de vos appels</div>
+          <div class="lp">
+            <div class="rcard"><div class="rico out">↗</div><div class="ri"><div class="rn">+57 304 662 5213</div><div class="rm">Aujourd'hui · 14:32</div></div><div class="rd">2:34</div></div>
+            <div class="rcard"><div class="rico mis">↘</div><div class="ri"><div class="rn">+33 7 56 93 32 61</div><div class="rm">Aujourd'hui · 11:15 · Manqué</div></div><div class="rd">—</div></div>
+            <div class="rcard"><div class="rico out">↗</div><div class="ri"><div class="rn">+1 646 555 1234</div><div class="rm">Hier · 16:45</div></div><div class="rd">5:12</div></div>
+          </div>
+        </div>
+
+        <!-- Favoris -->
+        <div class="pane" id="pane-favoris" data-tab="favoris">
+          <div class="pt">Favoris</div>
+          <div class="ps">Contacts importants</div>
+          <div class="lp">
+            <div class="empty">
+              <div class="ei">⭐</div>
+              <div class="et">Aucun favori</div>
+              <div class="ed">Appuyez longuement sur un contact pour l'ajouter.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMS -->
+        <div class="pane" id="pane-sms" data-tab="sms">
+          <div class="pt">SMS</div>
+          <div class="ps">Envoyer un message</div>
+          <div class="sf">
+            <input  class="sto"  type="tel"  placeholder="Destinataire (+33…)" />
+            <textarea class="sbod" rows="5" placeholder="Votre message…"></textarea>
+            <button class="ssend">Envoyer le SMS</button>
+          </div>
+        </div>
+
+      </div><!-- /pbody -->
+    </div><!-- /panel-col -->
+
+  </div><!-- /main -->
+
+  <!-- Bottom tab bar (mobile only) -->
+  <nav id="tabbar">
+    <div class="tab on"  data-col="dialer"    data-pane="">
+      <span class="tico">📞</span><span class="tlbl">Dialer</span>
+    </div>
+    <div class="tab"     data-col="panel" data-pane="prospects">
+      <span class="tico badge">👥</span><span class="tlbl">Prospects</span>
+    </div>
+    <div class="tab"     data-col="panel" data-pane="recents">
+      <span class="tico">🕐</span><span class="tlbl">Récents</span>
+    </div>
+    <div class="tab"     data-col="panel" data-pane="favoris">
+      <span class="tico">⭐</span><span class="tlbl">Favoris</span>
+    </div>
+    <div class="tab"     data-col="panel" data-pane="sms">
+      <span class="tico">💬</span><span class="tlbl">SMS</span>
+    </div>
+  </nav>
+
+</div><!-- /app -->
+
+<!-- hidden tel input for iOS keyboard -->
+<input id="tel-hidden" type="tel" inputmode="tel" autocomplete="off"
+       style="position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;top:-999px" />
+
+<script>
+(function(){
+'use strict';
+
+/* ── state ─────────────────────────────── */
+let num = '', secs = 0, iv = null, sc = 0, sr = 0, st = 0;
+
+/* ── helpers ────────────────────────────── */
+const $  = id => document.getElementById(id);
+const isMob = () => window.innerWidth < 768;
+const fmt = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+
+function setStatus(m) { $('status').textContent = m; }
+
+/* ── number display ─────────────────────── */
+function refresh() {
+  const el = $('disp');
+  if (num) { el.textContent = num; el.classList.remove('ph'); }
+  else     { el.textContent = 'Entrez un numéro'; el.classList.add('ph'); }
+  $('tel-hidden').value = num;
+}
+
+/* ── numpad ─────────────────────────────── */
+document.querySelectorAll('.nk[data-d]').forEach(b => {
+  b.addEventListener('click', () => {
+    num += (b.dataset.d === '0' && !num) ? '+' : b.dataset.d;
+    refresh();
+    if (navigator.vibrate) navigator.vibrate(4);
+  });
+});
+
+let delT;
+$('del-btn').addEventListener('click', () => { num = num.slice(0,-1); refresh(); });
+$('del-btn').addEventListener('touchstart', () => {
+  delT = setTimeout(() => { num = ''; refresh(); }, 650);
+}, {passive:true});
+$('del-btn').addEventListener('touchend', () => clearTimeout(delT));
+
+/* ── chips ──────────────────────────────── */
+document.querySelectorAll('[data-n]').forEach(el => {
+  const trigger = el.classList.contains('chip') ? el
+                : el.querySelector('.cbtn') || el;
+
+  // chip button
+  if (el.classList.contains('chip')) {
+    el.addEventListener('click', () => {
+      num = el.dataset.n; refresh();
+      if (isMob()) switchTab('dialer', '');
     });
+  }
 
-    chips.forEach((chip) => {
-      chip.addEventListener('click', () => {
-        phoneInput.value = chip.dataset.number;
-      });
+  // contact card
+  if (el.classList.contains('card')) {
+    el.querySelector('.cbtn').addEventListener('click', e => {
+      e.stopPropagation();
+      num = el.dataset.n; refresh();
+      if (isMob()) switchTab('dialer', '');
+      setTimeout(call, 80);
     });
-  </script>
+    el.addEventListener('click', () => {
+      num = el.dataset.n; refresh();
+      if (isMob()) switchTab('dialer', '');
+    });
+  }
+});
+
+/* ── call ───────────────────────────────── */
+function normalise(v) { return v.trim().replace(/\s+/g,''); }
+
+async function call() {
+  const to = normalise(num);
+  if (!to) { setStatus('Entre un numéro.'); return; }
+  const btn = $('call-btn');
+  btn.disabled = true;
+  setStatus("Lancement de l'appel…");
+  try {
+    const r = await fetch(`/call?to=${encodeURIComponent(to)}`);
+    const d = await r.json();
+    if (!r.ok || !d.success) throw new Error(d.error || 'Erreur inconnue');
+    setStatus(`Appel lancé vers ${d.to}\nSID: ${d.sid}`);
+    startTimer(to);
+    sc++; $('s-calls').textContent = sc;
+  } catch(e) {
+    setStatus(`Erreur : ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('call-btn').addEventListener('click', call);
+
+/* ── timer ──────────────────────────────── */
+function startTimer(n) {
+  secs = 0; clearInterval(iv);
+  $('call-num').textContent = n;
+  $('call-banner').classList.add('on');
+  iv = setInterval(() => { secs++; $('call-timer').textContent = fmt(secs); }, 1000);
+}
+function stopTimer() {
+  clearInterval(iv);
+  $('call-banner').classList.remove('on');
+  if (secs > 10) {
+    sr++; st += secs;
+    $('s-reach').textContent = sr;
+    $('s-avg').textContent = fmt(Math.round(st/sr));
+  }
+  secs = 0;
+}
+$('hangup').addEventListener('click', stopTimer);
+
+/* ── tab switching (mobile) ─────────────── */
+/*
+  Each bottom tab carries:
+    data-col  = "dialer" | "panel"
+    data-pane = "" | "prospects" | "recents" | "favoris" | "sms"
+*/
+function switchTab(col, pane) {
+  // update bottom bar highlight
+  document.querySelectorAll('#tabbar .tab').forEach(t => {
+    t.classList.toggle('on',
+      t.dataset.col === col && t.dataset.pane === pane);
+  });
+
+  if (!isMob()) return;
+
+  // show/hide columns
+  $('dialer-col').classList.toggle('on', col === 'dialer');
+  $('panel-col') .classList.toggle('on', col === 'panel');
+
+  // if panel, activate correct pane
+  if (col === 'panel' && pane) {
+    document.querySelectorAll('#pbody .pane').forEach(p => {
+      p.classList.toggle('on', p.dataset.tab === pane);
+    });
+  }
+}
+
+document.querySelectorAll('#tabbar .tab').forEach(t => {
+  t.addEventListener('click', () => {
+    switchTab(t.dataset.col, t.dataset.pane);
+    if (navigator.vibrate) navigator.vibrate(4);
+  });
+});
+
+/* ── desktop right panel tab strip ──────── */
+document.querySelectorAll('.rtab').forEach(rt => {
+  rt.addEventListener('click', () => {
+    document.querySelectorAll('.rtab').forEach(x => x.classList.remove('on'));
+    rt.classList.add('on');
+    document.querySelectorAll('#pbody .pane').forEach(p => {
+      p.classList.toggle('on', p.dataset.tab === rt.dataset.p);
+    });
+  });
+});
+
+/* ── iOS keyboard ────────────────────────── */
+const th = $('tel-hidden');
+$('num-box') && document.querySelector('.num-box').addEventListener('click', () => {
+  if (isMob()) th.focus();
+});
+th.addEventListener('input', () => {
+  num = th.value.replace(/[^0-9+*#]/g,''); refresh();
+});
+
+/* ── script sheet ────────────────────────── */
+window.showScript = () => { $('ssheet').classList.add('on'); $('sovl').classList.add('on'); };
+window.hideScript = () => { $('ssheet').classList.remove('on'); $('sovl').classList.remove('on'); };
+let sy = 0;
+$('ssheet').addEventListener('touchstart', e => { sy = e.touches[0].clientY; }, {passive:true});
+$('ssheet').addEventListener('touchmove',  e => { if(e.touches[0].clientY - sy > 60) hideScript(); }, {passive:true});
+
+/* ── incoming call helpers ───────────────── */
+window.showIncoming = (n, name) => {
+  $('inc-num').textContent  = n    || '+33 7 56 93 32 61';
+  $('inc-name').textContent = name || 'Client inconnu';
+  $('incoming').classList.add('on');
+};
+window.declineCall = () => $('incoming').classList.remove('on');
+window.acceptCall  = () => {
+  const n = $('inc-num').textContent;
+  $('incoming').classList.remove('on');
+  startTimer(n);
+};
+
+/* ── init ───────────────────────────────── */
+refresh();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+
+}());
+</script>
 </body>
 </html>
